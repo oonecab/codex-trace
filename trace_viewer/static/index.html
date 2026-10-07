@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Codex Trace · 执行回放</title>
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="/process.css">
+  <script src="/process.js" defer></script>
+  <script src="/app.js" defer></script>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar" aria-label="会话导航">
+    <a class="brand" href="/" aria-label="Codex Trace 首页"><img src="/icon.svg" alt=""><span>Codex Trace<small>每一步，都有迹可循</small></span></a>
+    <div class="session-controls">
+      <label class="search"><span aria-hidden="true">⌕</span><input id="session-search" type="search" placeholder="搜索会话或项目" aria-label="搜索会话或项目"><kbd>/</kbd></label>
+      <select id="project-filter" aria-label="选择项目"><option value="">所有项目</option></select>
+      <div class="sessions-heading"><span>本地会话 <b id="session-count">—</b></span><label><input id="show-archived" type="checkbox">含归档</label></div>
+    </div>
+    <nav id="sessions" aria-label="会话列表"><div class="placeholder">正在读取会话…</div></nav>
+    <div class="source-note"><i></i><span>本地读取 · 无需模型调用<small id="source-path">连接本机记录</small></span></div>
+  </aside>
+  <main class="workspace">
+    <header class="topbar"><div class="breadcrumb"><button id="nav-toggle" class="icon-button mobile-only" aria-label="切换会话列表">☰</button><span>工作记录</span><span class="divider">/</span><b id="project-name">选择会话</b></div><div class="live-controls"><span id="last-refreshed" class="muted"></span><label class="live-toggle"><input id="live" type="checkbox" checked><span class="live-dot"></span>自动刷新</label><button id="refresh" class="icon-button" aria-label="刷新记录" title="刷新记录">↻</button></div></header>
+    <div id="notice" class="notice" role="status" hidden></div>
+    <div id="welcome" class="welcome"><div class="welcome-mark">↳</div><h1>把执行过程连起来看</h1><p>选择一条会话，查看请求、思考摘要、工具调用与返回结果。</p><div class="welcome-features"><span>按轮次组织</span><span>直接回查原文</span><span>跟随最新进展</span></div></div>
+    <section id="session-view" hidden>
+      <div class="session-heading"><div class="eyebrow">SESSION REPLAY <span id="session-state"></span></div><h1 id="session-title"></h1><div class="session-meta"><span id="session-model"></span><span id="session-date"></span><span id="session-origin"></span></div><div id="session-cwd" class="cwd"></div></div>
+      <div class="summary-strip" id="summary-strip"></div>
+      <div class="view-bar"><div class="view-tabs" role="tablist" aria-label="查看方式"><button id="view-process" role="tab" data-view="process" aria-selected="true" aria-controls="process-view">过程概览</button><button id="view-timeline" role="tab" data-view="timeline" aria-selected="false" aria-controls="timeline-view">时间线</button><button id="view-graph" role="tab" data-view="graph" aria-selected="false" aria-controls="graph-view">关系图</button></div><span>规则整理 · 本机处理</span></div>
+      <section id="process-view" role="tabpanel" aria-labelledby="view-process">
+        <div class="process-toolbar"><p>先看每轮做了什么，再展开具体步骤。</p><div class="process-jump"><select id="process-turn" aria-label="跳转到轮次"></select><button id="process-latest" class="subtle-button">↓ 最新轮次</button></div><label><input id="process-expand" type="checkbox">展开全部阶段</label></div>
+        <div id="process-list"></div>
+      </section>
+      <section id="graph-view" role="tabpanel" aria-labelledby="view-graph" hidden>
+        <div class="graph-controls"><label>轮次<select id="graph-turn" aria-label="关系图轮次"></select></label><label>关联对象<select id="graph-object" aria-label="筛选关联文件或子代理"><option value="">全部对象</option></select></label><label class="graph-statements"><input id="graph-statements" type="checkbox">含说明与摘要</label></div>
+        <div class="graph-meta"><div class="graph-legend"><span><i></i>记录关联</span><span><i class="order"></i>记录顺序</span><span><i class="rule"></i>同命令匹配</span><small>顺序与匹配不代表因果</small></div><div class="graph-zoom" role="group" aria-label="关系图缩放"><button id="graph-zoom-out" aria-label="缩小关系图" title="缩小关系图">−</button><button id="graph-zoom-reset" aria-label="恢复关系图默认大小" title="恢复默认大小">100%</button><button id="graph-zoom-in" aria-label="放大关系图" title="放大关系图">+</button></div></div>
+        <div id="graph-evidence" class="graph-evidence" role="status">点击节点回查记录，点击连线查看关联依据。</div>
+        <div id="graph-canvas" class="graph-canvas" aria-label="执行关系图"></div>
+        <div class="graph-pager"><span id="graph-count"></span><div><button id="graph-prev" class="subtle-button">← 上一页</button><span id="graph-page"></span><button id="graph-next" class="subtle-button">下一页 →</button></div></div>
+      </section>
+      <section id="timeline-view" role="tabpanel" aria-labelledby="view-timeline" hidden>
+      <div class="activity-overview"><div class="overview-caption"><span>执行脉络</span><span id="overview-help">点击色段定位事件</span></div><div id="activity-track" aria-label="按顺序排列的事件概览"></div><div class="legend"><span><i class="thinking"></i>思考</span><span><i class="command"></i>命令</span><span><i class="file"></i>文件</span><span><i class="tool"></i>工具 / 搜索</span><span><i class="message"></i>说明</span></div></div>
+      <div class="timeline-toolbar"><div id="category-filters" class="filters" aria-label="事件类别"></div><div class="timeline-options"><label class="event-search"><input id="event-search" type="search" aria-label="搜索时间线" placeholder="搜索时间线预览"></label><button id="density" class="subtle-button" aria-pressed="false">连续阅读</button><button id="latest" class="subtle-button">↓ 最新</button></div></div>
+      <div class="timeline-status"><span id="visible-count"></span><label class="empty-thoughts"><input id="show-empty-thoughts" type="checkbox">含无摘要思考 <span id="empty-thought-count"></span></label></div>
+      <div id="timeline" class="timeline" aria-label="执行时间线"></div>
+      <div id="load-more-wrap" class="load-more-wrap" hidden><button id="load-more" class="subtle-button">继续显示更早 / 更多事件</button></div>
+      </section>
+    </section>
+  </main>
+  <aside id="detail" class="detail-panel" aria-label="事件详情" hidden>
+    <header class="detail-header"><div><span class="eyebrow">INSPECT EVENT</span><h2 id="detail-label">事件详情</h2></div><button id="close-detail" class="icon-button" aria-label="关闭详情">×</button></header>
+    <div class="detail-summary"><h3 id="detail-title"></h3><div id="detail-meta"></div></div>
+    <div class="detail-tabs" role="tablist" aria-label="详情内容"><button data-tab="content" role="tab" aria-selected="true">内容</button><button data-tab="raw" role="tab" aria-selected="false">原始记录</button><button id="copy-detail" class="copy-button" aria-label="复制当前详情">复制</button></div>
+    <div id="detail-body" class="detail-body" role="tabpanel"></div>
+    <footer id="detail-source" class="detail-source"></footer>
+  </aside>
+</div>
+<div id="toast" class="toast" role="status" hidden></div>
+</body>
+</html>

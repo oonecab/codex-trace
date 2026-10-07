@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "project": {
+    "name": "codex-trace",
+    "summary": "只读本地 Codex 执行记录，以会话、轮次和事件时间线查看工作过程。",
+    "profile": "windows-data-tool",
+    "governance_level": "lean"
+  },
+  "technology": {
+    "languages": [
+      "Python",
+      "JavaScript",
+      "HTML",
+      "CSS"
+    ],
+    "frameworks": [],
+    "runtimes": [
+      "Python >=3.10",
+      "现代浏览器"
+    ],
+    "source_directories": [
+      "trace_viewer",
+      "tests"
+    ],
+    "architecture_notes": [
+      "Python 标准库提供仅监听回环地址的 HTTP 服务；浏览器界面无外部依赖。",
+      "SQLite 以 mode=ro 和 query_only 读取；兼容原始 rollout JSONL。",
+      "本地日志作为不可信文本展示，不执行命令、不渲染日志中的 HTML。"
+    ]
+  },
+  "commands": {
+    "setup": [],
+    "test": [
+      "python -m unittest discover -s tests -v"
+    ],
+    "lint": [],
+    "format": [],
+    "build": []
+  },
+  "agents": {
+    "codex": true,
+    "claude_code": false,
+    "opencode": true
+  },
+  "environment": {
+    "variables": [
+      "CODEX_HOME"
+    ],
+    "services": [
+      "本机只读 Codex 历史记录"
+    ],
+    "ports": [
+      "HTTP 默认 127.0.0.1:8765，可通过启动参数修改"
+    ]
+  },
+  "security": {
+    "sensitive_data": [
+      "用户会话、命令、工具返回结果和代码片段"
+    ],
+    "forbidden_actions": [
+      "写入或迁移 Codex 源数据库",
+      "执行日志中记录的命令",
+      "自动上传日志或调用外部模型"
+    ]
+  },
+  "project_rules": [
+    "事件必须能回查原始来源；缺失信息明确标记，不推测隐藏思考。",
+    "时间、耗时、去重和统计口径以 docs/rules/records.md 为权威来源。",
+    "新日志类型保留可见记录，不静默丢弃。"
+  ],
+  "generator": {
+    "name": "init-project-governance",
+    "version": "0.2.1"
+  }
+}
