@@ -1,6 +1,6 @@
 # Codex Trace
 
-本地 Codex 执行记录可视化，让每一步都有迹可循。
+本地 Codex、Claude Code、pi agent、DeepSeek Harness 执行记录可视化，让每一步都有迹可循。
 
 提供过程概览、事件时间线和关系图，直接读取本机记录，无需 LLM、API Key 或第三方 Python 包。
 
@@ -32,6 +32,8 @@ cd codex-trace
 ```powershell
 # 指定其他数据目录或端口
 .\start.ps1 -CodexDataDirectory 'D:\CodexData' -Port 8766
+# Claude Code、pi agent 默认读取 ~/.claude 和 ~/.pi/agent，也可单独指定
+.\start.ps1 -ClaudeDataDirectory 'D:\claude' -PiDataDirectory 'D:\pi'
 # 只启动服务
 .\start.ps1 -NoBrowser
 # 跨平台入口，在本目录运行
@@ -53,6 +55,8 @@ python -m trace_viewer --open
 - 自动刷新每 5 秒更新当前会话，时间线中的“↓ 最新”跳到末尾。它只展示已经保存到本地的内容，可能稍晚于 App 中的动作。
 
 ## 数据边界
+
+除 Codex 外，也读取本机 Claude Code（`~/.claude/projects`）、pi agent（`~/.pi/agent/sessions`）和 DeepSeek Harness（`~/.dsh/sessions`，CLI、Web、桌面端共用）的会话记录。DeepSeek Harness 的会话是 zstd 压缩的，需要先 `python -m pip install zstandard`（装进运行本服务的那个 Python；Python 3.14 以上自带，无需安装），没装时只有该来源缺席并给出提示。它们的工具调用被映射成与 Codex 相同的统一事件，因此过程概览、时间线和关系图的用法一致；侧栏可按来源筛选，会话 id 带 `claude:`、`pi:` 前缀。只读取这两个会话目录，不读取同目录下的凭据或配置；日志没有记录的事实（如退出码、轮次状态）不会被推断，口径见 [执行记录与统计](docs/rules/records.md)。
 
 直接只读本机 Codex 数据库和 rollout，不需要 OpenAI API Key、不下载本地模型、不调用评审模型、不上传会话。浏览器只连接本机服务。借鉴 OEB 分层整理记录的思路，实现“统一事件 → 规则卡片 → 可追溯关联 → 过程视图”。本项目独立实现，不复现 OEB 的模型裁判或能力评分。
 

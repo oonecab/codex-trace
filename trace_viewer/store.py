@@ -4,27 +4,24 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
-import threading
 import time
 from collections import OrderedDict
 from contextlib import closing
 from pathlib import Path
 
-from .normalize import canonical_item, normalize, public_event, statistics, text_of, timestamp_ms
-from .analysis import build_analysis
+from .normalize import canonical_item, normalize, text_of, timestamp_ms
+from .source_base import CachedSource, StoreError  # noqa: F401  (StoreError is re-exported)
 
 
-class StoreError(Exception):
-    pass
+class HistoryStore(CachedSource):
+    id = "codex"
+    label = "Codex"
 
-
-class HistoryStore:
     def __init__(self, home=None):
+        super().__init__()
         self.home = Path(home or os.environ.get("CODEX_HOME") or Path.home() / ".codex").expanduser().resolve()
         self.state = self._database("state_")
         self.history = self._database("thread_history_")
-        self._lock = threading.RLock()
-        self._cache = OrderedDict()
         self._index = None
 
     def _database(self, prefix):
@@ -40,7 +37,7 @@ class HistoryStore:
         return con
 
     def info(self):
-        return {"home": str(self.home), "stateDatabase": self.state.name if self.state else None,
+        return {"id": self.id, "label": self.label, "home": str(self.home), "stateDatabase": self.state.name if self.state else None,
                 "historyDatabase": self.history.name if self.history else None, "readOnly": True}
 
     def _rollout_index(self):
@@ -68,7 +65,8 @@ class HistoryStore:
         self._index = (now, result)
         return result
 
-    def list_sessions(self):
+    def _rows(self, sid=None):
+        """Thread rows from the state database, or from rollout files when it is unreadable."""
         warning = None
         try:
             if not self.state:
@@ -76,82 +74,65 @@ class HistoryStore:
             with closing(self.connect(self.state)) as con:
                 cols = {r[1] for r in con.execute("PRAGMA table_info(threads)")}
                 wanted = [c for c in ("id", "title", "name", "cwd", "model", "updated_at", "created_at", "archived", "rollout_path", "originator", "history_mode", "tokens_used", "agent_path") if c in cols]
-                rows = [dict(r) for r in con.execute("SELECT " + ",".join(wanted) + " FROM threads ORDER BY updated_at DESC")]
+                query = "SELECT " + ",".join(wanted) + " FROM threads"
+                if sid is None:
+                    rows = [dict(r) for r in con.execute(query + " ORDER BY updated_at DESC")]
+                else:
+                    rows = [dict(r) for r in con.execute(query + " WHERE id=?", (sid,))]
         except (sqlite3.Error, StoreError) as exc:
             warning = str(exc)
-            rows = self._rollout_index()
-        sessions = []
-        for r in rows:
-            path = str(r.get("cwd") or "")
-            if path.startswith("\\\\?\\"):
-                path = path[4:]
-            sessions.append({"id": r["id"], "title": r.get("name") or r.get("title") or "未命名会话",
-                             "cwd": path, "project": path.rstrip("/\\").replace("\\", "/").rsplit("/", 1)[-1] or "未分组",
-                             "model": r.get("model") or "", "updatedAt": timestamp_ms(r.get("updated_at")),
-                             "createdAt": timestamp_ms(r.get("created_at")), "archived": bool(r.get("archived")),
-                             "originator": r.get("originator") or "Codex", "historyMode": r.get("history_mode"),
-                             "tokensUsed": r.get("tokens_used"), "agentPath": r.get("agent_path"),
-                             "_rollout": r.get("rollout_path")})
+            rows = [r for r in self._rollout_index() if sid is None or r["id"] == sid]
+        return rows, warning
+
+    @staticmethod
+    def _to_session(r):
+        path = str(r.get("cwd") or "")
+        if path.startswith("\\\\?\\"):
+            path = path[4:]
+        return {"id": r["id"], "title": r.get("name") or r.get("title") or "未命名会话",
+                "cwd": path, "project": path.rstrip("/\\").replace("\\", "/").rsplit("/", 1)[-1] or "未分组",
+                "model": r.get("model") or "", "updatedAt": timestamp_ms(r.get("updated_at")),
+                "createdAt": timestamp_ms(r.get("created_at")), "archived": bool(r.get("archived")),
+                "originator": r.get("originator") or "Codex", "source": "codex", "sourceLabel": "Codex", "historyMode": r.get("history_mode"),
+                "tokensUsed": r.get("tokens_used"), "agentPath": r.get("agent_path"),
+                "_rollout": r.get("rollout_path")}
+
+    def list_sessions(self):
+        rows, warning = self._rows()
+        sessions = [self._to_session(r) for r in rows]
         sessions.sort(key=lambda s: s["updatedAt"] or 0, reverse=True)
         return sessions, warning
 
     def _session(self, sid):
-        sessions, _ = self.list_sessions()
-        return next((s for s in sessions if s["id"] == sid), None)
+        rows, _ = self._rows(sid)
+        return self._to_session(rows[0]) if rows else None
 
-    def load(self, sid, refresh=False):
-        with self._lock:
-            cached = self._cache.get(sid)
-            if cached and not refresh and time.monotonic() - cached[0] < 2:
-                return cached[1]
-            session = self._session(sid)
-            if not session:
-                raise KeyError("会话不存在。")
-            warnings, events, turns = [], [], []
-            if self.history:
-                try:
-                    with closing(self.connect(self.history)) as con:
-                        turns = [dict(r) for r in con.execute("SELECT * FROM thread_turns WHERE thread_id=? ORDER BY rollout_ordinal", (sid,))]
-                        rows = con.execute("SELECT * FROM thread_items WHERE thread_id=? ORDER BY rollout_ordinal", (sid,))
-                        for raw_row in rows:
-                            r = dict(raw_row)
-                            try:
-                                item = json.loads(r["item_json"])
-                                if not isinstance(item, dict):
-                                    raise ValueError("item is not an object")
-                            except (ValueError, TypeError):
-                                warnings.append("一个损坏的历史条目无法解析。")
-                                continue
-                            events.append(normalize(item, turn_id=r["turn_id"], ordinal=r["rollout_ordinal"],
-                                                    started=r.get("started_at_ms"), completed=r.get("completed_at_ms"), created=r.get("created_at_ms")))
-                except sqlite3.Error as exc:
-                    warnings.append("结构化历史暂不可读，将尝试原始记录：" + str(exc))
-                    events, turns = [], []
-            if not events:
-                events, turns, extra = self._read_rollout(session.get("_rollout"))
-                warnings.extend(extra)
-            turn_map = {str(t["turn_id"]): {"id": str(t["turn_id"]), "status": t.get("status", "unknown"),
-                        "startedAt": timestamp_ms(t.get("started_at")), "completedAt": timestamp_ms(t.get("completed_at")),
-                        "durationMs": t.get("duration_ms"), "error": t.get("error_json")} for t in turns}
-            for e in events:
-                if e["turnId"] not in turn_map:
-                    turn_map[e["turnId"]] = {"id": e["turnId"], "status": "unknown", "startedAt": e["timestamp"], "completedAt": None, "durationMs": None}
-            result = {"session": {k: v for k, v in session.items() if not k.startswith("_")},
-                      "turns": list(turn_map.values()), "events": events, "stats": statistics(events),
-                      "warnings": list(dict.fromkeys(warnings)), "loadedAt": int(time.time() * 1000)}
-            result["analysis"] = build_analysis(events, result["turns"], session_id=sid, cwd=session["cwd"])
-            self._cache[sid] = (time.monotonic(), result)
-            self._cache.move_to_end(sid)
-            while len(self._cache) > 3:
-                self._cache.popitem(last=False)
-            return result
-
-    def detail(self, sid, item_id, turn_id=None):
-        result = self.load(sid)
-        event = next((e for e in result["events"] if e["id"] == item_id and (turn_id is None or e["turnId"] == turn_id)), None)
-        if event is None:
-            raise KeyError("事件不存在，可能需要刷新。")
-        return {**public_event(event), **event["_detail"]}
+    def _parse(self, session):
+        sid = session["id"]
+        warnings, events, turns = [], [], []
+        if self.history:
+            try:
+                with closing(self.connect(self.history)) as con:
+                    turns = [dict(r) for r in con.execute("SELECT * FROM thread_turns WHERE thread_id=? ORDER BY rollout_ordinal", (sid,))]
+                    rows = con.execute("SELECT * FROM thread_items WHERE thread_id=? ORDER BY rollout_ordinal", (sid,))
+                    for raw_row in rows:
+                        r = dict(raw_row)
+                        try:
+                            item = json.loads(r["item_json"])
+                            if not isinstance(item, dict):
+                                raise ValueError("item is not an object")
+                        except (ValueError, TypeError):
+                            warnings.append("一个损坏的历史条目无法解析。")
+                            continue
+                        events.append(normalize(item, turn_id=r["turn_id"], ordinal=r["rollout_ordinal"],
+                                                started=r.get("started_at_ms"), completed=r.get("completed_at_ms"), created=r.get("created_at_ms")))
+            except sqlite3.Error as exc:
+                warnings.append("结构化历史暂不可读，将尝试原始记录：" + str(exc))
+                events, turns = [], []
+        if not events:
+            events, turns, extra = self._read_rollout(session.get("_rollout"))
+            warnings.extend(extra)
+        return events, turns, warnings
 
     def _read_rollout(self, value):
         if not value:

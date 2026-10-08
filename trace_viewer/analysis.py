@@ -13,7 +13,7 @@ VERSION = "rules-1"
 PHASES = {"inspect": "读取与检索", "change": "文件修改", "verify": "测试与检查",
           "execute": "命令执行", "tools": "工具操作", "delegate": "子代理协作",
           "context": "上下文整理", "wait": "等待", "statement": "说明与摘要", "other": "其他记录"}
-LABELS = {"read": "读取文件", "search": "搜索", "list": "列出文件", "edit": "修改文件",
+CARD_LABELS = {"read": "读取文件", "search": "搜索", "list": "列出文件", "edit": "修改文件",
           "test": "运行测试", "check": "语法检查", "build": "构建命令", "command": "执行命令",
           "web": "网页检索", "tool": "调用工具", "agent": "子代理活动", "image": "查看图像",
           "context": "整理上下文", "wait": "等待", "message": "进展说明", "final": "最终答复",
@@ -78,10 +78,15 @@ def _statements(script):
     # contain whole source files, including strings such as "pytest".
     script = re.sub(r"(?ms)@(['\"]).*?^\s*\1@", "__HERE_STRING__", script)
     lines, chars, quote = [], [], None
-    for char in script:
+    skip = False
+    for i, char in enumerate(script):
+        if skip:  # second character of `&&`
+            skip = False
+            continue
         if char in "\"'":
             quote = None if quote == char else char if quote is None else quote
-        if char in "\n;|" and quote is None:
+        if quote is None and (char in "\n;|" or (char == "&" and script[i + 1:i + 2] == "&")):
+            skip = char == "&"
             lines.append("".join(chars).strip()); chars = []
         else:
             chars.append(char)
@@ -138,7 +143,7 @@ def command_info(event):
                     for token in re.findall(r"'([^']*)'|\"([^\"]*)\"|([^\s,]+)", m[1]):
                         refs.append((next((x for x in token if x), ""), "reads", source_field))
             else:
-                refs.extend((a, "reads", source_field) for a in args if not a.startswith("-") and not a.isdigit())
+                refs.extend((a, "reads", source_field) for a in args if not a.startswith(("-", "&")) and not a.isdigit() and not re.match(r"^\d*[<>]", a))
         elif executable in {"rg", "grep", "select-string", "findstr"}:
             op = "list" if executable == "rg" and "--files" in args else "search"
         elif executable in {"ls", "dir", "get-childitem"}:
@@ -208,7 +213,7 @@ def _statement_hint(text):
 def extract_card(event, session_id, cwd):
     d = event["_detail"]
     raw = d["raw"]
-    kind = {"file": "edit", "tool": "tool", "agent": "agent", "web": "web", "context": "context", "wait": "wait", "image": "image", "message": "final" if event["phase"] == "final" else "message", "thinking": "thinking", "request": "request"}.get(event["category"], "other")
+    kind = {"file": "edit", "tool": "tool", "agent": "agent", "web": "web", "context": "context", "wait": "wait", "image": "image", "message": "final" if event["answerPhase"] == "final" else "message", "thinking": "thinking", "request": "request"}.get(event["category"], "other")
     operations, refs = [kind], []
     reasons = [evidence("type", event["type"], "记录中的事件类型")]
     tests, reports, repeat_safe = [], [], True
@@ -256,7 +261,7 @@ def extract_card(event, session_id, cwd):
         result_label += f"；整条命令退出 {event['exitCode']}"
     tests_key = uid("test-command", path_key(base, base), [t["argv"] for t in tests]) if tests and repeat_safe and path_key(base, base) else None
     return {"id": uid("card", session_id, event["turnId"], event["id"]), "eventId": event["id"], "turnId": event["turnId"], "ordinal": event["ordinal"],
-            "kind": kind, "label": LABELS[kind], "phase": PHASE_FOR.get(kind, "other"), "operations": operations,
+            "kind": kind, "label": CARD_LABELS[kind], "phase": PHASE_FOR.get(kind, "other"), "operations": operations,
             "title": clip(title, 170), "preview": event["preview"][:350], "timestamp": event["timestamp"], "durationMs": event["durationMs"],
             "sourceKind": "statement" if statement else "record", "statementHint": _statement_hint(d["body"]) if statement else None,
             "isOperation": not statement, "readable": event["hasReadableText"], "attention": attention,
@@ -264,6 +269,39 @@ def extract_card(event, session_id, cwd):
             "testCommands": [{"runner": t["runner"], "command": t["command"]} for t in tests], "testReports": reports,
             "testOutcome": "failed" if report_failed else "passed" if report_passed else "unreported",
             "hasResult": has_result, "resultLabel": result_label, "exitCode": event["exitCode"], "_testKey": tests_key}
+
+
+def summarize_turn(turn_id, turn_cards, operations, stages, test_groups):
+    """Rule-based per-turn summary: counts only, no interpretation."""
+    counts = Counter(op for c in operations for op in set(c["operations"]))
+    written = {ref["key"] for c in operations for ref in c["files"] if ref["relation"] == "writes"}
+    read = {ref["key"] for c in operations for ref in c["files"] if ref["relation"] == "reads"}
+    test_cards = [c for c in operations if c["testCommands"]]
+    parts = []
+    inspect = sum(bool(set(c["operations"]) & {"read", "search", "list", "web", "image"}) for c in operations)
+    if inspect:
+        parts.append(f"读取 / 检索 {inspect} 项操作")
+    if counts["edit"]:
+        parts.append(f"{counts['edit']} 条文件修改记录" + (f"，完成修改涉及 {len(written)} 个文件" if written else ""))
+    if test_cards:
+        parts.append(f"{len(test_cards)} 次测试调用")
+    checks = sum(bool(set(c["operations"]) & {"check", "build"}) for c in operations)
+    if checks:
+        parts.append(f"{checks} 次检查 / 构建")
+    uncategorized = sum(c["kind"] == "command" for c in operations)
+    other = len(operations) - sum(c["phase"] in {"inspect", "change", "verify"} for c in operations)
+    if other:
+        parts.append(f"{other} 次其他操作")
+    if not parts:
+        parts.append("本轮没有工具操作记录" if turn_cards else "本轮尚无可读事件")
+    passed = sum(c["testOutcome"] == "passed" for c in test_cards)
+    failed = sum(c["testOutcome"] == "failed" for c in test_cards)
+    unreported = len(test_cards) - passed - failed
+    return ({"id": turn_id, "summary": "；".join(parts), "operationCount": len(operations),
+                      "statementCount": sum(c["sourceKind"] == "statement" and c["readable"] for c in turn_cards),
+                      "writtenFiles": len(written), "readFiles": len(read), "testCalls": len(test_cards), "testPassed": passed, "testFailed": failed, "testUnreported": unreported,
+                      "attentionCount": sum(c["attention"] for c in operations), "unclassifiedCommands": uncategorized,
+                      "stages": stages, "testSeries": [{"id": key, "cardIds": [c["id"] for c in group], "label": group[0]["testCommands"][0]["runner"]} for key, group in test_groups.items() if len(group) > 1]})
 
 
 def build_analysis(events, turns, *, session_id="", cwd=""):
@@ -319,34 +357,6 @@ def build_analysis(events, turns, *, session_id="", cwd=""):
                          interveningEdits=[c["id"] for c in edits],
                          evidence=[evidence("command + cwd", card["testCommands"][0]["command"], "同轮、相同字面参数及工作目录；不表示因果或修复")])
                 group.append(card)
-        counts = Counter(op for c in operations for op in set(c["operations"]))
-        written = {ref["key"] for c in operations for ref in c["files"] if ref["relation"] == "writes"}
-        read = {ref["key"] for c in operations for ref in c["files"] if ref["relation"] == "reads"}
-        test_cards = [c for c in operations if c["testCommands"]]
-        parts = []
-        inspect = sum(bool(set(c["operations"]) & {"read", "search", "list", "web", "image"}) for c in operations)
-        if inspect:
-            parts.append(f"读取 / 检索 {inspect} 项操作")
-        if counts["edit"]:
-            parts.append(f"{counts['edit']} 条文件修改记录" + (f"，完成修改涉及 {len(written)} 个文件" if written else ""))
-        if test_cards:
-            parts.append(f"{len(test_cards)} 次测试调用")
-        checks = sum(bool(set(c["operations"]) & {"check", "build"}) for c in operations)
-        if checks:
-            parts.append(f"{checks} 次检查 / 构建")
-        uncategorized = sum(c["kind"] == "command" for c in operations)
-        other = len(operations) - sum(c["phase"] in {"inspect", "change", "verify"} for c in operations)
-        if other:
-            parts.append(f"{other} 次其他操作")
-        if not parts:
-            parts.append("本轮没有工具操作记录" if turn_cards else "本轮尚无可读事件")
-        passed = sum(c["testOutcome"] == "passed" for c in test_cards)
-        failed = sum(c["testOutcome"] == "failed" for c in test_cards)
-        unreported = len(test_cards) - passed - failed
-        summaries.append({"id": turn_id, "summary": "；".join(parts), "operationCount": len(operations),
-                          "statementCount": sum(c["sourceKind"] == "statement" and c["readable"] for c in turn_cards),
-                          "writtenFiles": len(written), "readFiles": len(read), "testCalls": len(test_cards), "testPassed": passed, "testFailed": failed, "testUnreported": unreported,
-                          "attentionCount": sum(c["attention"] for c in operations), "unclassifiedCommands": uncategorized,
-                          "stages": stages, "testSeries": [{"id": key, "cardIds": [c["id"] for c in group], "label": group[0]["testCommands"][0]["runner"]} for key, group in test_groups.items() if len(group) > 1]})
+        summaries.append(summarize_turn(turn_id, turn_cards, operations, stages, test_groups))
     return {"version": VERSION, "cards": [{k: v for k, v in c.items() if not k.startswith("_")} for c in cards],
             "turns": summaries, "graph": {"nodes": nodes, "edges": edges}}

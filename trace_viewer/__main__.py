@@ -10,7 +10,11 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
+from .catalog import Catalog
+from .claude_source import ClaudeCodeSource
+from .dsh_source import DeepSeekHarnessSource
 from .normalize import public_event
+from .pi_source import PiSource
 from .store import HistoryStore, StoreError
 
 STATIC = Path(__file__).parent / "static"
@@ -61,9 +65,10 @@ def handler_for(store):
                     if len(parts) == 3:
                         result = store.load(sid, refresh=query.get("refresh") == ["1"])
                         return self.send_body({**result, "events": [public_event(e) for e in result["events"]]})
-                assets = {"/": "index.html", "/index.html": "index.html", "/app.js": "app.js", "/style.css": "style.css", "/process.js": "process.js", "/process.css": "process.css", "/icon.svg": "icon.svg"}
-                if path in assets:
-                    file = STATIC / assets[path]
+                # Only files that sit directly in the static folder are served; no sub-paths, no traversal.
+                name = "index.html" if path == "/" else path.lstrip("/")
+                file = STATIC / name
+                if not any(c in name for c in "/\\:") and not name.startswith(".") and file.is_file():
                     kind = mimetypes.guess_type(str(file))[0] or "application/octet-stream"
                     return self.send_body(file.read_bytes(), kind=kind + ("; charset=utf-8" if kind.startswith("text/") or "javascript" in kind else ""))
                 return self.send_body({"error": "地址不存在。"}, 404)
@@ -78,16 +83,25 @@ def handler_for(store):
 def main():
     parser = argparse.ArgumentParser(description="只读本机 Codex 执行记录。")
     parser.add_argument("--codex-home", help="Codex 数据目录，默认 CODEX_HOME 或 ~/.codex")
+    parser.add_argument("--claude-home", help="Claude Code 数据目录，默认 CLAUDE_CONFIG_DIR 或 ~/.claude")
+    parser.add_argument("--pi-home", help="pi agent 数据目录，默认 PI_CODING_AGENT_DIR 或 ~/.pi/agent")
+    parser.add_argument("--dsh-home", help="DeepSeek Harness 数据目录，默认 DSH_HOME 或 ~/.dsh")
+    parser.add_argument("--only", choices=["codex", "claude", "pi", "dsh"], action="append", help="只读取指定来源，可重复；默认读取全部")
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--open", action="store_true", help="服务就绪后打开默认浏览器")
     args = parser.parse_args()
-    store = HistoryStore(args.codex_home)
+    wanted = set(args.only or ["codex", "claude", "pi", "dsh"])
+    sources = [src for name, src in (("codex", lambda: HistoryStore(args.codex_home)), ("claude", lambda: ClaudeCodeSource(args.claude_home)),
+                                     ("pi", lambda: PiSource(args.pi_home)),
+                                     ("dsh", lambda: DeepSeekHarnessSource(args.dsh_home))) if name in wanted for src in [src()]]
+    store = Catalog(sources)
     try:
         server = ThreadingHTTPServer(("127.0.0.1", args.port), handler_for(store))
     except OSError as exc:
         parser.exit(1, f"无法启动本地服务：{exc}。请换一个 --port，或打开已运行的页面。\n")
     print(f"Codex Trace: http://127.0.0.1:{server.server_port}", flush=True)
-    print(f"Read-only source: {store.home}", flush=True)
+    for info in store.info()["sources"]:
+        print(f"Read-only source ({info['label']}): {info.get('home')}", flush=True)
     if args.open:
         threading.Thread(target=webbrowser.open, args=(f"http://127.0.0.1:{server.server_port}",), daemon=True).start()
     try:

@@ -1,6 +1,9 @@
 param(
     [int]$Port = 8765,
     [string]$CodexDataDirectory = "",
+    [string]$ClaudeDataDirectory = "",
+    [string]$PiDataDirectory = "",
+    [string]$DshDataDirectory = "",
     [switch]$NoBrowser
 )
 $ErrorActionPreference = 'Stop'
@@ -12,6 +15,9 @@ if (-not (Test-Path -LiteralPath $viewerRuntime)) {
 }
 $viewerArguments = @('-m', 'trace_viewer', '--port', $Port)
 if ($CodexDataDirectory) { $viewerArguments += @('--codex-home', $CodexDataDirectory) }
+if ($ClaudeDataDirectory) { $viewerArguments += @('--claude-home', $ClaudeDataDirectory) }
+if ($PiDataDirectory) { $viewerArguments += @('--pi-home', $PiDataDirectory) }
+if ($DshDataDirectory) { $viewerArguments += @('--dsh-home', $DshDataDirectory) }
 if (-not $NoBrowser) { $viewerArguments += '--open' }
 Push-Location $PSScriptRoot
 try {

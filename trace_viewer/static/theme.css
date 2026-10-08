@@ -1,0 +1,154 @@
+/* Generated colour scale: --bg-* surfaces, --bd-* borders, --tx-* text; f = hue family (n neutral, g green, w warm, p purple, b blue),
+   number = lightness step, trailing a = has alpha. Light values come from the original palette; dark values are derived. */
+:root {
+  --bd-g15: #a09e98;
+  --bd-g16: #a8a69d;
+  --bd-g17: #b4b1a7;
+  --bd-g18: #c0beb9;
+  --bd-g19: #c7c6c2;
+  --bd-g20: #d3d2cc;
+  --bd-g21: #dddcda;
+  --bd-g22: #dfdedb;
+  --bd-g23: #e8e7e4;
+  --bd-n25: #ffffff;
+  --bd-p15: #a18caf;
+  --bd-p16: #a58cba;
+  --bd-p22: #e1d8ec;
+  --bd-w21: #eddcba;
+  --bd-w22: #eddfd6;
+  --bg-g41: #d4d3d0;
+  --bg-g43: #deddd9;
+  --bg-g46: #ecebe9;
+  --bg-g47: #f2f2f2;
+  --bg-g48: #f4f4f3;
+  --bg-g48a: #f8f7f6f5;
+  --bg-g49: #fafafa;
+  --bg-g50: #fdfdfc;
+  --bg-g50a: #fdfdfcf5;
+  --bg-n50: #ffffff;
+  --bg-p48: #f6f1fa;
+  --bg-p49: #faf8fc;
+  --bg-w47: #fff2e5;
+  --bg-w48: #fff8e9;
+  --bg-w49: #fffaf7;
+  --tx-g10: #a2a19e;
+  --tx-g4: #413f37;
+  --tx-g5: #4a4943;
+  --tx-g6: #5b5954;
+  --tx-g7: #72716e;
+  --tx-p7: #6c567f;
+  --tx-p8: #7c698b;
+  --tx-w6: #86602d;
+  --tx-w7: #a35b3e;
+  --tx-w8: #af6043;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme=light]) {
+    color-scheme: dark;
+    --bd-g15: #6f6e69;
+    --bd-g16: #6b6a64;
+    --bd-g17: #65635c;
+    --bd-g18: #5a5954;
+    --bd-g19: #54534f;
+    --bd-g20: #4e4d47;
+    --bd-g21: #444341;
+    --bd-g22: #44433f;
+    --bd-g23: #3e3d39;
+    --bd-n25: #2b2b2b;
+    --bd-p15: #6d5f76;
+    --bd-p16: #685877;
+    --bd-p22: #3d314b;
+    --bd-w21: #61502e;
+    --bd-w22: #4d3b30;
+    --bg-g41: #383836;
+    --bg-g43: #33322f;
+    --bg-g46: #2a2a27;
+    --bg-g47: #252523;
+    --bg-g48: #252422;
+    --bg-g48a: #151514f5;
+    --bg-g49: #20201e;
+    --bg-g50: #1e1e1d;
+    --bg-g50a: #1e1e1df5;
+    --bg-n50: #1c1c1c;
+    --bg-p48: #23182b;
+    --bg-p49: #1f1827;
+    --bg-w47: #39240e;
+    --bg-w48: #372a0e;
+    --bg-w49: #311a0c;
+    --tx-g10: #848481;
+    --tx-g4: #cccac4;
+    --tx-g5: #c3c2bf;
+    --tx-g6: #b6b6b3;
+    --tx-g7: #a4a4a3;
+    --tx-p7: #a89eb2;
+    --tx-p8: #9e95a5;
+    --tx-w6: #cab79d;
+    --tx-w7: #bc998b;
+    --tx-w8: #b89183;
+  }
+}
+:root[data-theme=dark] {
+  color-scheme: dark;
+  --bd-g15: #6f6e69;
+  --bd-g16: #6b6a64;
+  --bd-g17: #65635c;
+  --bd-g18: #5a5954;
+  --bd-g19: #54534f;
+  --bd-g20: #4e4d47;
+  --bd-g21: #444341;
+  --bd-g22: #44433f;
+  --bd-g23: #3e3d39;
+  --bd-n25: #2b2b2b;
+  --bd-p15: #6d5f76;
+  --bd-p16: #685877;
+  --bd-p22: #3d314b;
+  --bd-w21: #61502e;
+  --bd-w22: #4d3b30;
+  --bg-g41: #383836;
+  --bg-g43: #33322f;
+  --bg-g46: #2a2a27;
+  --bg-g47: #252523;
+  --bg-g48: #252422;
+  --bg-g48a: #151514f5;
+  --bg-g49: #20201e;
+  --bg-g50: #1e1e1d;
+  --bg-g50a: #1e1e1df5;
+  --bg-n50: #1c1c1c;
+  --bg-p48: #23182b;
+  --bg-p49: #1f1827;
+  --bg-w47: #39240e;
+  --bg-w48: #372a0e;
+  --bg-w49: #311a0c;
+  --tx-g10: #848481;
+  --tx-g4: #cccac4;
+  --tx-g5: #c3c2bf;
+  --tx-g6: #b6b6b3;
+  --tx-g7: #a4a4a3;
+  --tx-p7: #a89eb2;
+  --tx-p8: #9e95a5;
+  --tx-w6: #cab79d;
+  --tx-w7: #bc998b;
+  --tx-w8: #b89183;
+}
+
+/* Base palette overrides (dark) */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme=light]) {
+    --ink: #faf9f5; --muted: #b0aea5; --quiet: #8d8b84;
+    --green: #d97757; --green-soft: #33231c; --line: #36342f;
+    --surface: #1e1d1b; --paper: #272623; --canvas: #141413;
+    --shadow-sm: none; --danger: #e5776a;
+    --thinking: #b9a3d1; --command: #8fb59a; --file: #d4a65a; --tool: #86aed6;
+    --message: #a8a69d; --request: #e0907a; --agent: #b3a2d8; --context: #c9b575;
+    --wait: #a3a199; --image: #d0a850; --other: #a3a199;
+  }
+}
+:root[data-theme=dark] {
+  --ink: #faf9f5; --muted: #b0aea5; --quiet: #8d8b84;
+  --green: #d97757; --green-soft: #33231c; --line: #36342f;
+  --surface: #1e1d1b; --paper: #272623; --canvas: #141413;
+  --shadow-sm: none; --danger: #e5776a;
+  --thinking: #b9a3d1; --command: #8fb59a; --file: #d4a65a; --tool: #86aed6;
+  --message: #a8a69d; --request: #e0907a; --agent: #b3a2d8; --context: #c9b575;
+  --wait: #a3a199; --image: #d0a850; --other: #a3a199;
+}

@@ -25,7 +25,8 @@
     "architecture_notes": [
       "Python 标准库提供仅监听回环地址的 HTTP 服务；浏览器界面无外部依赖。",
       "SQLite 以 mode=ro 和 query_only 读取；兼容原始 rollout JSONL。",
-      "本地日志作为不可信文本展示，不执行命令、不渲染日志中的 HTML。"
+      "本地日志作为不可信文本展示，不执行命令、不渲染日志中的 HTML。",
+      "可选依赖 zstandard（或 Python 3.14+ 自带的 compression.zstd）仅用于读取 DeepSeek Harness 的 zstd 压缩会话；缺失时只影响该来源，并在页面提示。"
     ]
   },
   "commands": {
@@ -44,10 +45,14 @@
   },
   "environment": {
     "variables": [
-      "CODEX_HOME"
+      "CODEX_HOME",
+      "CLAUDE_CONFIG_DIR",
+      "PI_CODING_AGENT_DIR",
+      "DSH_HOME"
     ],
     "services": [
-      "本机只读 Codex 历史记录"
+      "本机只读 Codex 历史记录",
+      "本机只读 Claude Code、pi agent、DeepSeek Harness 会话记录（~/.claude/projects、~/.pi/agent/sessions、~/.dsh/sessions）"
     ],
     "ports": [
       "HTTP 默认 127.0.0.1:8765，可通过启动参数修改"

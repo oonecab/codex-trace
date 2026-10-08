@@ -89,6 +89,11 @@ class DatabaseFixture(unittest.TestCase):
         self.assertEqual(get("/api/sessions",{"Origin":"https://foreign.example"})[0],403)
         self.assertEqual(get("/api/sessions",{"Host":"foreign.example"})[0],403)
         self.assertEqual(get("/../../auth.json")[0],404)
+        self.assertEqual(get("/api/sessions/thread-a")[1]["fingerprint"],session["fingerprint"])
+        conn=http.client.HTTPConnection("127.0.0.1",server.server_port)
+        for asset in ("/style.css","/theme.css","/app.js","/process.js"):
+            conn.request("GET",asset);res=conn.getresponse();res.read();self.assertEqual(res.status,200,asset)
+        conn.close()
         self.assertEqual(get("/api/sessions/%27%20OR%201=1--")[0],404)
 
     def test_refresh_reads_new_events_without_writing_source(self):
@@ -159,10 +164,19 @@ class NormalizeTests(unittest.TestCase):
         self.assertEqual(e["preview"],"页面已打开")
         self.assertEqual(e["_detail"]["body"],"browser")
 
+    def test_new_item_types_register_a_handler_and_unknown_types_stay_visible(self):
+        from trace_viewer import normalize as n
+        self.addCleanup(n.HANDLERS.pop, "customStep", None)
+        n.handles("customStep")(lambda item, label: {"title": "自定义 " + item["name"], "input": item["name"]})
+        known = n.normalize({"type": "customStep", "id": "c", "name": "x"}, turn_id="t", ordinal=1)
+        self.assertEqual((known["title"], known["category"]), ("自定义 x", "other"))
+        unknown = n.normalize({"type": "neverSeenBefore", "id": "u", "text": "保留"}, turn_id="t", ordinal=2)
+        self.assertEqual((unknown["title"], unknown["preview"]), ("neverSeenBefore", "保留"))
+
     def test_desktop_final_answer_phase_is_recognized(self):
         e=normalize({"type":"agentMessage","id":"f","phase":"final_answer","text":"完成"},turn_id="t",ordinal=1)
         self.assertEqual(e["label"],"最终答复")
-        self.assertEqual(e["phase"],"final")
+        self.assertEqual(e["answerPhase"],"final")
         self.assertEqual(e["_detail"]["raw"]["phase"],"final_answer")
 
     def test_question_reply_readable_and_raw_preserved(self):

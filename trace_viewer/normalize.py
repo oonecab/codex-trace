@@ -13,7 +13,7 @@ CATEGORIES = {
     "contextCompaction": "context", "sleep": "wait", "imageView": "image",
     "imageGeneration": "image",
 }
-LABELS = {"request": "用户请求", "message": "进展说明", "thinking": "思考",
+EVENT_LABELS = {"request": "用户请求", "message": "进展说明", "thinking": "思考",
           "command": "执行命令", "file": "修改文件", "web": "搜索网页", "tool": "调用工具",
           "agent": "子代理", "context": "压缩上下文", "wait": "等待", "image": "图像", "other": "其他事件"}
 
@@ -96,83 +96,135 @@ def canonical_item(item: dict) -> dict:
     return item
 
 
+# Each handler turns one canonical item into the readable parts of an event. A new item type
+# (for example from another agent's log) only needs a handler registered with @handles(...).
+HANDLERS = {}
+
+
+def handles(*types):
+    def register(fn):
+        for t in types:
+            HANDLERS[t] = fn
+        return fn
+    return register
+
+
+@handles("userMessage")
+def _user_message(item, label):
+    body = text_of(item.get("content"))
+    # A user prompt may contain app context followed by the actual message.
+    body = re.sub(r"<(environment_context|external_codex_apps_open_page)>.*?</\1>", "", body, flags=re.S).strip() or body
+    reply = re.fullmatch(r"<send_user_message_question_reply>\s*(.*?)\s*</send_user_message_question_reply>", body, flags=re.S)
+    if reply:
+        try:
+            answers = json.loads(reply[1])
+            if isinstance(answers, list) and all(isinstance(a, dict) for a in answers):
+                body = "\n\n".join(f"{a.get('question', '')}\n选择：{text_of(a.get('answer'))}" for a in answers)
+        except ValueError:
+            pass
+    return {"title": compact(body), "body": body}
+
+
+@handles("agentMessage")
+def _agent_message(item, label):
+    body = text_of(item.get("text"))
+    final = item.get("phase") in ("final", "final_answer")
+    return {"label": "最终答复" if final else "进展说明", "title": compact(body), "body": body}
+
+
+@handles("reasoning")
+def _reasoning(item, label):
+    body = text_of(item.get("summary"))
+    return {"title": compact(body) if body.strip() else "思考 · 没有可展示的摘要", "body": body}
+
+
+@handles("commandExecution")
+def _command(item, label):
+    input_text = text_of(item.get("command"))
+    output = text_of(item.get("aggregatedOutput"))
+    actions = item.get("commandActions") or []
+    names = [str(x.get("name") or x.get("path") or "") for x in actions if isinstance(x, dict)]
+    names = [n.replace("\\", "/").rsplit("/", 1)[-1] for n in names if n]
+    kinds = {x.get("type") for x in actions if isinstance(x, dict)}
+    parts = {"input": input_text, "output": output}
+    if kinds and kinds <= {"read"}:
+        parts.update(label="读取文件", title="读取 " + "、".join(dict.fromkeys(names)) if names else "读取文件")
+    elif kinds and kinds <= {"search"}:
+        parts.update(label="搜索代码", title=compact(input_text))
+    elif kinds and kinds <= {"listFiles"}:
+        parts.update(label="列出文件", title=compact(input_text))
+    else:
+        # Show the script, not the ubiquitous PowerShell executable prefix.
+        shown = re.sub(r'^.*?(?:-Command\s+| -lc\s+)', '', input_text, count=1, flags=re.I)
+        parts["title"] = compact(shown.strip('"\'')) or label
+    return parts
+
+
+@handles("fileChange")
+def _file_change(item, label):
+    changes = item.get("changes") or []
+    files = [str(x.get("path", "")) for x in changes if isinstance(x, dict) and x.get("path")]
+    title = "修改 " + "、".join(p.replace("\\", "/").rsplit("/", 1)[-1] for p in files[:3])
+    if len(files) > 3:
+        title += f" 等 {len(files)} 个文件"
+    diff = "\n\n".join(f"{x.get('path', '')}\n{text_of(x.get('diff'))}" for x in changes if isinstance(x, dict))
+    return {"title": title, "input": diff, "output": text_of(item.get("resultText")), "body": "\n".join(files), "files": files}
+
+
+@handles("webSearch")
+def _web_search(item, label):
+    action = item.get("action") or {}
+    query = text_of(item.get("query")) or text_of(action.get("query")) or text_of(action)
+    return {"title": compact(query) or "搜索网页", "input": query, "output": text_of(item.get("results"))}
+
+
+@handles("mcpToolCall")
+def _tool_call(item, label):
+    return {"title": str(item.get("tool") or item.get("name") or label), "body": str(item.get("server") or ""),
+            "input": json.dumps(item.get("arguments") or {}, ensure_ascii=False, indent=2),
+            "output": text_of(item.get("result")) or text_of(item.get("error"))}
+
+
+@handles("collabAgentToolCall")
+def _collab_agent(item, label):
+    return {"title": str(item.get("tool") or "协调子代理"), "agents": list(item.get("receiverThreadIds") or []),
+            "input": text_of(item.get("prompt")), "output": text_of(item.get("agentsStates"))}
+
+
+@handles("subAgentActivity")
+def _sub_agent(item, label):
+    agent = item.get("agentThreadId")
+    return {"title": str(item.get("kind") or "子代理活动"), "agents": [agent] if agent else [],
+            "body": str(item.get("agentPath") or "")}
+
+
+@handles("contextCompaction")
+def _compaction(item, label):
+    return {"title": "整理上下文，继续工作", "body": "记录表明发生了上下文压缩。"}
+
+
+@handles("imageView")
+def _image_view(item, label):
+    return {"title": "查看图像", "body": str(item.get("path") or "")}
+
+
+def _fallback(item, typ, category):
+    """Unknown types stay visible: show the type name and any text the record carries."""
+    return {"title": typ if category == "other" else EVENT_LABELS[category],
+            "body": text_of(item.get("text") or item.get("message"))}
+
+
 def normalize(item: dict, *, turn_id: str, ordinal: int, started=None, completed=None, created=None, source="sqlite") -> dict:
     item = canonical_item(item)
     typ = item.get("type", "unknown")
     category = CATEGORIES.get(typ, "other")
-    label = LABELS[category]
-    title, body, input_text, output, files, agents = label, "", "", "", [], []
-    if typ == "userMessage":
-        body = text_of(item.get("content"))
-        # A user prompt may contain app context followed by the actual message.
-        body = re.sub(r"<(environment_context|external_codex_apps_open_page)>.*?</\1>", "", body, flags=re.S).strip() or body
-        reply = re.fullmatch(r"<send_user_message_question_reply>\s*(.*?)\s*</send_user_message_question_reply>", body, flags=re.S)
-        if reply:
-            try:
-                answers = json.loads(reply[1])
-                if isinstance(answers, list) and all(isinstance(a, dict) for a in answers):
-                    body = "\n\n".join(f"{a.get('question', '')}\n选择：{text_of(a.get('answer'))}" for a in answers)
-            except ValueError:
-                pass
-        title = compact(body)
-    elif typ == "agentMessage":
-        body = text_of(item.get("text"))
-        label = "最终答复" if item.get("phase") in ("final", "final_answer") else "进展说明"
-        title = compact(body)
-    elif typ == "reasoning":
-        body = text_of(item.get("summary"))
-        title = compact(body) if body.strip() else "思考 · 没有可展示的摘要"
-    elif typ == "commandExecution":
-        input_text = text_of(item.get("command"))
-        output = text_of(item.get("aggregatedOutput"))
-        actions = item.get("commandActions") or []
-        names = [str(x.get("name") or x.get("path") or "") for x in actions if isinstance(x, dict)]
-        names = [n.replace("\\", "/").rsplit("/", 1)[-1] for n in names if n]
-        kinds = {x.get("type") for x in actions if isinstance(x, dict)}
-        if kinds and kinds <= {"read"}:
-            label, title = "读取文件", "读取 " + "、".join(dict.fromkeys(names)) if names else "读取文件"
-        elif kinds and kinds <= {"search"}:
-            label, title = "搜索代码", compact(input_text)
-        elif kinds and kinds <= {"listFiles"}:
-            label, title = "列出文件", compact(input_text)
-        else:
-            # Show the script, not the ubiquitous PowerShell executable prefix.
-            shown = re.sub(r'^.*?(?:-Command\s+| -lc\s+)', '', input_text, count=1, flags=re.I)
-            title = compact(shown.strip('"\'')) or label
-    elif typ == "fileChange":
-        changes = item.get("changes") or []
-        files = [str(x.get("path", "")) for x in changes if isinstance(x, dict) and x.get("path")]
-        title = "修改 " + "、".join(p.replace("\\", "/").rsplit("/", 1)[-1] for p in files[:3])
-        if len(files) > 3:
-            title += f" 等 {len(files)} 个文件"
-        input_text = "\n\n".join(f"{x.get('path', '')}\n{text_of(x.get('diff'))}" for x in changes if isinstance(x, dict))
-        body = "\n".join(files)
-    elif typ == "webSearch":
-        action = item.get("action") or {}
-        input_text = text_of(item.get("query")) or text_of(action.get("query")) or text_of(action)
-        title = compact(input_text) or "搜索网页"
-        output = text_of(item.get("results"))
-    elif typ == "mcpToolCall":
-        title = str(item.get("tool") or item.get("name") or label)
-        body = str(item.get("server") or "")
-        input_text = json.dumps(item.get("arguments") or {}, ensure_ascii=False, indent=2)
-        output = text_of(item.get("result")) or text_of(item.get("error"))
-    elif typ == "collabAgentToolCall":
-        title = str(item.get("tool") or "协调子代理")
-        agents = list(item.get("receiverThreadIds") or [])
-        input_text = text_of(item.get("prompt"))
-        output = text_of(item.get("agentsStates"))
-    elif typ == "subAgentActivity":
-        title = str(item.get("kind") or "子代理活动")
-        agents = [item["agentThreadId"]] if item.get("agentThreadId") else []
-        body = str(item.get("agentPath") or "")
-    elif typ == "contextCompaction":
-        title, body = "整理上下文，继续工作", "记录表明发生了上下文压缩。"
-    elif typ == "imageView":
-        title, body = "查看图像", str(item.get("path") or "")
-    else:
-        title = typ if category == "other" else LABELS[category]
-        body = text_of(item.get("text") or item.get("message"))
+    label = EVENT_LABELS[category]
+    handler = HANDLERS.get(typ)
+    parts = handler(item, label) if handler else _fallback(item, typ, category)
+    label = parts.get("label", label)
+    title, body = parts.get("title", label), parts.get("body", "")
+    input_text, output = parts.get("input", ""), parts.get("output", "")
+    files, agents = parts.get("files", []), parts.get("agents", [])
     status = str(item.get("status") or "completed")
     code = item.get("exitCode")
     error = status.lower() in {"failed", "error", "declined", "cancelled", "canceled", "interrupted"} or (code is not None and code != 0) or bool(item.get("error"))
@@ -189,7 +241,7 @@ def normalize(item: dict, *, turn_id: str, ordinal: int, started=None, completed
             "preview": preview[:700], "status": status, "error": error,
             "exitCode": code, "startedAt": start, "completedAt": end,
             "timestamp": start or timestamp_ms(created) or end, "durationMs": duration,
-            "phase": "final" if item.get("phase") == "final_answer" else item.get("phase"), "files": files, "agents": agents, "source": source,
+            "answerPhase": "final" if item.get("phase") == "final_answer" else item.get("phase"), "files": files, "agents": agents, "source": source,
             "hasReadableText": bool(body or input_text or output),
             "_detail": {"body": body, "input": input_text, "output": output, "raw": safe_raw(item)}}
 
