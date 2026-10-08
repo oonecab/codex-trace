@@ -4,6 +4,8 @@
 
 提供过程概览、事件时间线和关系图，直接读取本机记录，无需 LLM、API Key 或第三方 Python 包。
 
+设计灵感来自论文 [Open-Endedness Bench (OEB)](https://arxiv.org/abs/2610.02588)，借鉴范围与论文引用见[灵感来源与引用](#灵感来源与引用)。
+
 <!-- project-governance:managed:start -->
 只读本地 Codex 执行记录，以会话、轮次和事件时间线查看工作过程。
 
@@ -58,7 +60,7 @@ python -m trace_viewer --open
 
 除 Codex 外，也读取本机 Claude Code（`~/.claude/projects`）、pi agent（`~/.pi/agent/sessions`）和 DeepSeek Harness（`~/.dsh/sessions`，CLI、Web、桌面端共用）的会话记录。DeepSeek Harness 的会话是 zstd 压缩的，需要先 `python -m pip install zstandard`（装进运行本服务的那个 Python；Python 3.14 以上自带，无需安装），没装时只有该来源缺席并给出提示。它们的工具调用被映射成与 Codex 相同的统一事件，因此过程概览、时间线和关系图的用法一致；侧栏可按来源筛选，会话 id 带 `claude:`、`pi:` 前缀。只读取这两个会话目录，不读取同目录下的凭据或配置；日志没有记录的事实（如退出码、轮次状态）不会被推断，口径见 [执行记录与统计](docs/rules/records.md)。
 
-直接只读本机 Codex 数据库和 rollout，不需要 OpenAI API Key、不下载本地模型、不调用评审模型、不上传会话。浏览器只连接本机服务。借鉴 OEB 分层整理记录的思路，实现“统一事件 → 规则卡片 → 可追溯关联 → 过程视图”。本项目独立实现，不复现 OEB 的模型裁判或能力评分。
+直接只读本机 Codex 数据库和 rollout，不需要 OpenAI API Key、不下载本地模型、不调用评审模型、不上传会话。浏览器只连接本机服务。
 
 连线依据是日志字段、记录顺序或字面命令匹配。它不判断“某条证据支持了某个结论”“某次修改修复了错误”等语义关系；复杂脚本无法细分时保留原命令。只展示源记录已有的公开摘要，不生成或猜测隐藏思考。
 
@@ -71,3 +73,30 @@ python -m unittest discover -s tests -v
 ```
 
 测试使用临时构造的数据，不改写真实 Codex 记录。验证范围与交付证据见 [验证记录](docs/verification.md)。
+
+## 灵感来源与引用
+
+Codex Trace 的设计受到论文 **[Open-Endedness Bench: Measuring Epistemic Process from Agent Records](https://arxiv.org/abs/2610.02588)** 及其 [OEB 开源实现](https://github.com/ARA-Labs/oeb) 的启发。我们借鉴了从 Agent 执行记录出发，统一日志格式、分层整理事件与关系，并让整理结果能够回查原始证据的思路。
+
+本项目将这些思路用于本地开发会话的可视化，通过确定性规则实现“统一事件 → 规则卡片 → 可追溯关联 → 过程视图”，帮助用户查看命令、文件修改和工具返回。Codex Trace 是独立实现，不依赖 LLM，也不复现 OEB 的模型裁判、认知过程评估或能力评分。感谢论文作者提供的方法与开源参考。
+
+原论文：Chengyang Shi, Xianglin Ji, Jintao Huang, Jicheng Wang, Yifeng He, and Jiachen Liu. **Open-Endedness Bench: Measuring Epistemic Process from Agent Records**. 2026. [arXiv:2610.02588](https://arxiv.org/abs/2610.02588).
+
+引用 OEB 原论文时可使用以下 BibTeX：
+
+```bibtex
+@article{shi2026oeb,
+  title   = {Open-Endedness Bench: Measuring Epistemic Process from Agent Records},
+  author  = {Shi, Chengyang and Ji, Xianglin and Huang, Jintao and Wang, Jicheng and He, Yifeng and Liu, Jiachen},
+  journal = {arXiv preprint arXiv:2610.02588},
+  year    = {2026},
+  doi     = {10.48550/arXiv.2610.02588},
+  url     = {https://arxiv.org/abs/2610.02588}
+}
+```
+
+## 许可证
+
+本项目采用 [MIT 许可证](LICENSE)。
+
+Copyright (c) 2026 oonecab.
