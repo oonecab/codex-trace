@@ -55,6 +55,7 @@
 
 ## 已确认的技术细节
 
+- 当前仅支持 Windows 平台，暂不支持 macOS 和 Linux。`python -m trace_viewer --open` 是 Windows 下的直接启动入口，不代表跨平台支持。
 - `trace_viewer/store.py`：定位本地数据库，以短连接读取索引、轮次、事件；结构化历史缺失时读取 rollout；按 id 只查询目标会话；缓存最近三条会话（列表请求 2 秒内复用，单个事件详情始终复用缓存，缓存里找不到该事件才重新解析），同一会话并发请求只解析一次；响应附带 `fingerprint`（事件标识、状态、耗时与内容长度的摘要，不含完整内容），前端据此判断是否需要重绘。
 - `trace_viewer/source_base.py`：所有来源共用的缓存、按会话加锁、结果组装（分析与 `fingerprint`）和详情查找；来源只需实现 `list_sessions`、`_session`、`_parse`。
 - `trace_viewer/agent_logs.py`：Claude Code、pi 共用的会话文件索引（按修改时间缓存元数据，只接受数据目录内的文件）与统一事件构造函数。

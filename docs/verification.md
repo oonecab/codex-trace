@@ -141,3 +141,10 @@
 - 本次按用户要求提交当前重构、页面与来源接入改动；以上问题保留待修复，没有在本次提交中改变相关运行逻辑。
 - 文档影响：将 `.project-governance.json` 已有的可选解压依赖说明同步到 `TECH.md` 受管区块，并记录本次复核结论。`ex.pkl` 与 `$null` 为未纳入提交的本地文件。
 - 提交前检查：同步说明并统一 `TECH.md` 换行后，项目治理严格校验通过；`git diff --check` 通过。
+
+## 项目名称排查与 Windows 支持说明（2026-10-11）
+
+- 只读检查运行中的 `/api/sessions`：工作目录为 `…/October/salary` 的 Codex 会话未归档，返回的 `project` 是 `salary`；当前未归档 Codex 会话中没有名为 `October` 的项目选项，按 `October` 搜索完整工作目录可以匹配该会话。
+- 代码依据：`HistoryStore._to_session` 用工作目录的最后一级目录名作为项目名称；`renderProjects` 按完整工作目录分组并使用该名称，`renderSessions` 搜索会话标题与完整工作目录。两者范围不同，本次只解释现有行为，没有修改筛选或读取逻辑。
+- README 明确目前仅支持 Windows，并将“跨平台入口”改为 Windows 下的 Python 启动方式，同时补充项目分组与搜索范围说明；TECH 同步支持边界。此次为文档澄清，没有改变技术栈、运行环境、端口或记录规则，无需更新 `.project-governance.json`、环境清单或规则文档，也无需新增问题单或测试用例。
+- `python -m unittest discover -s tests -v`：共 63 项，62 项通过，1 项因当前 Python 缺少可选 `zstandard` 而跳过；前端 JavaScript 语法检查包含在通过的测试中。`git diff --check` 通过。
